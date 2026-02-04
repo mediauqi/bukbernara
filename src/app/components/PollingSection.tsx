@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { projectId, publicAnonKey } from "/utils/supabase/info";
+import { supabase } from "/utils/supabase/client"; // pastikan path ini sesuai
 
 interface PollData {
   [key: string]: number;
@@ -11,14 +11,16 @@ interface PollingSectionProps {
   pollType: "location" | "date";
 }
 
-// Generate/retrieve anonymous user ID
+// Generate or retrieve anonymous user ID
 function getAnonymousUserId(): string {
   const STORAGE_KEY = 'anonymous_user_id';
   let userId = localStorage.getItem(STORAGE_KEY);
+  
   if (!userId) {
     userId = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
     localStorage.setItem(STORAGE_KEY, userId);
   }
+  
   return userId;
 }
 
@@ -33,120 +35,101 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const anonymousUserId = useRef<string>(getAnonymousUserId());
 
-  useEffect(() => {
-    fetchVotesAndUserChoice();
-    const interval = setInterval(fetchVotes, 5000);
-    return () => {
-      clearInterval(interval);
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, []);
-
-  const fetchVotesAndUserChoice = async () => {
-    await Promise.all([fetchVotes(), fetchUserChoice()]);
-  };
-
-  // --- Fetch votes terbaru dari Supabase ---
+  // --- Fetch votes dari tabel polls
   const fetchVotes = async () => {
     try {
-      const endpoint = pollType === "location" ? "votes/location" : "votes/date";
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-861a1fb5/${endpoint}`;
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
-      });
-      if (!response.ok) throw new Error(`Failed to fetch votes: ${response.status}`);
-      const data = await response.json();
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("polls")
+        .select("option");
 
-      // --- hitung votes per option ---
-      const counts: Record<string, number> = {};
+      if (error) throw error;
+
+      const counts: PollData = {};
       options.forEach(option => counts[option] = 0);
-      if (data && Array.isArray(data.votes)) {
-        data.votes.forEach((v: { option: string }) => {
-          if (counts[v.option] !== undefined) counts[v.option] += 1;
-        });
-      }
+      data?.forEach((vote: { option: string }) => {
+        if (counts[vote.option] !== undefined) counts[vote.option] += 1;
+      });
 
       setVotes(counts);
       setLoading(false);
       setError(null);
     } catch (err) {
-      console.error(`Error fetching votes for ${pollType}:`, err);
-      const defaultVotes: Record<string, number> = {};
-      options.forEach(option => defaultVotes[option] = 0);
-      setVotes(defaultVotes);
+      console.error("Error fetching votes:", err);
+      const counts: PollData = {};
+      options.forEach(option => counts[option] = 0);
+      setVotes(counts);
       setLoading(false);
       setError("Koneksi ke server gagal");
     }
   };
 
+  // --- Fetch user choice
   const fetchUserChoice = async () => {
     try {
       const userId = anonymousUserId.current;
-      const endpoint = `my-vote/${pollType}/${userId}`;
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-861a1fb5/${endpoint}`;
+      const { data, error } = await supabase
+        .from("polls")
+        .select("option")
+        .eq("anonymousUserId", userId)
+        .eq("pollType", pollType)
+        .single();
 
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${publicAnonKey}`, 'Content-Type': 'application/json' },
-      });
-      if (!response.ok) return;
-
-      const data = await response.json();
-      if (data.hasVoted && data.option) {
+      if (!error && data) {
         setSelectedOption(data.option);
         setSavedOption(data.option);
         setShowThankYou(true);
       }
     } catch (err) {
-      console.error(`Error fetching user choice for ${pollType}:`, err);
+      console.error("Error fetching user choice:", err);
     }
   };
 
-  const handleOptionClick = async (option: string) => {
+  const fetchAll = async () => {
+    await Promise.all([fetchVotes(), fetchUserChoice()]);
+  };
+
+  useEffect(() => {
+    fetchAll();
+    const interval = setInterval(fetchVotes, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleOptionClick = (option: string) => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
     setShowThankYou(false);
 
     if (savedOption === option) {
-      await deleteVote();
-      setSelectedOption(null);
-      setSavedOption(null);
+      deleteVote();
       return;
     }
 
     setSelectedOption(option);
-    saveTimeoutRef.current = setTimeout(() => saveVote(option), 3000);
+
+    saveTimeoutRef.current = setTimeout(() => {
+      saveVote(option);
+    }, 3000);
   };
 
   const saveVote = async (option: string) => {
     setSaving(true);
     try {
       const userId = anonymousUserId.current;
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-861a1fb5/vote/${pollType}`;
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
-        body: JSON.stringify({ anonymousUserId: userId, option }),
-      });
-      if (!response.ok) throw new Error("Failed to vote");
+      const { error } = await supabase
+        .from("polls")
+        .upsert({ anonymousUserId: userId, option, pollType })
+        .eq("anonymousUserId", userId)
+        .eq("pollType", pollType);
 
-      const data = await response.json();
-      // --- Hitung ulang votes supaya total & persentase update ---
-      const counts: Record<string, number> = {};
-      options.forEach(opt => counts[opt] = 0);
-      if (data && Array.isArray(data.votes)) {
-        data.votes.forEach((v: { option: string }) => {
-          if (counts[v.option] !== undefined) counts[v.option] += 1;
-        });
-      }
-      setVotes(counts);
+      if (error) throw error;
+
+      await fetchVotes();
 
       setSavedOption(option);
       setShowThankYou(true);
-      console.log(`Vote saved successfully: ${option}`);
     } catch (err) {
-      console.error(`Error voting for ${pollType}:`, err);
+      console.error("Error saving vote:", err);
       setError("Gagal menyimpan vote");
       setSelectedOption(savedOption);
     } finally {
@@ -155,25 +138,31 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
   };
 
   const deleteVote = async () => {
+    setSaving(true);
     try {
       const userId = anonymousUserId.current;
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-861a1fb5/vote/${pollType}/${userId}`;
-      const response = await fetch(url, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${publicAnonKey}` },
-      });
-      if (!response.ok) throw new Error("Failed to delete vote");
-      await fetchVotes();
+      const { error } = await supabase
+        .from("polls")
+        .delete()
+        .eq("anonymousUserId", userId)
+        .eq("pollType", pollType);
+
+      if (error) throw error;
+
       setSelectedOption(null);
       setSavedOption(null);
-      console.log(`Vote deleted successfully`);
+      setShowThankYou(false);
+
+      await fetchVotes();
     } catch (err) {
-      console.error(`Error deleting vote for ${pollType}:`, err);
+      console.error("Error deleting vote:", err);
       setError("Gagal menghapus vote");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const totalVotes = Object.values(votes || {}).reduce((a, b) => a + b, 0);
+  const totalVotes = Object.values(votes).reduce((a, b) => a + b, 0);
 
   return (
     <div className="glass-card p-6 md:p-8">
@@ -194,7 +183,7 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
       ) : (
         <>
           <div className="space-y-3">
-            {options.map((option) => {
+            {options.map(option => {
               const voteCount = votes[option] || 0;
               const percentage = totalVotes > 0 ? ((voteCount / totalVotes) * 100).toFixed(1) : "0";
               const isSelected = selectedOption === option;
@@ -205,40 +194,33 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
                   key={option}
                   onClick={() => handleOptionClick(option)}
                   disabled={saving}
-                  className={`w-full p-4 rounded-2xl text-left transition-all duration-300 relative overflow-hidden group ${
+                  className={`w-full p-4 rounded-2xl text-left relative overflow-hidden group transition-all duration-300 ${
                     isSelected && isSaved
                       ? "bg-gradient-to-r from-[#00417e] to-[#0052a3] text-white shadow-xl scale-[1.02] border-2 border-[#00417e]"
                       : isSelected && !isSaved
                       ? "bg-gradient-to-r from-blue-400 to-blue-500 text-white shadow-lg scale-[1.01] border-2 border-blue-400"
                       : "bg-white/50 hover:bg-white hover:shadow-lg hover:scale-[1.01] border border-[#00417e]/20 hover:border-[#00417e]/40"
-                  } ${saving ? 'opacity-70 cursor-wait' : 'cursor-pointer'}`}
+                  } ${saving ? "opacity-70 cursor-wait" : "cursor-pointer"}`}
                 >
-                  {/* Progress background */}
-                  {!isSelected && (
-                    <div className="absolute inset-0 bg-gradient-to-r from-[#00417e]/5 to-transparent transition-all duration-500" style={{ width: `${percentage}%` }} />
-                  )}
-                  {/* Content */}
-                  <div className="relative z-10">
-                    <div className="flex justify-between items-center mb-2">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'border-white bg-white' : 'border-gray-400'}`}>
-                          {isSelected && <div className={`w-3 h-3 rounded-full transition-all ${isSaved ? 'bg-[#00417e]' : 'bg-blue-500'}`} />}
-                        </div>
-                        <span className="font-semibold text-sm md:text-base">{option}</span>
-                      </div>
-                      <span className={`text-sm font-bold px-3 py-1 rounded-full ${isSelected ? 'bg-white/20 backdrop-blur-sm' : 'bg-white/50 backdrop-blur-sm'}`}>{percentage}%</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className={`flex-1 h-2 rounded-full overflow-hidden ${isSelected ? 'bg-white/30' : 'bg-white/50 backdrop-blur-sm'}`}>
-                        <div className={`h-full rounded-full transition-all duration-500 shadow-sm ${isSelected ? 'bg-white' : 'bg-gradient-to-r from-[#00417e] to-blue-500'}`} style={{ width: `${percentage}%` }} />
-                      </div>
-                      <span className={`text-xs min-w-[4rem] text-right ${isSelected ? 'text-white/90' : 'text-gray-600'}`}>{voteCount} suara</span>
-                    </div>
+                  {/* Progress */}
+                  <div
+                    className="absolute inset-0 bg-gradient-to-r from-[#00417e]/5 to-transparent transition-all duration-500"
+                    style={{ width: `${percentage}%` }}
+                  />
+                  <div className="relative z-10 flex justify-between items-center">
+                    <span className="font-semibold">{option}</span>
+                    <span>{percentage}% ({voteCount})</span>
                   </div>
                 </button>
               );
             })}
           </div>
+
+          {showThankYou && (
+            <p className="mt-4 text-green-700">Terima kasih! Vote Anda sudah tercatat.</p>
+          )}
+
+          {error && <p className="mt-4 text-yellow-700">{error}</p>}
         </>
       )}
     </div>
