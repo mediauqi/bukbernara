@@ -58,44 +58,44 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
     ]);
   };
 
-  const endpoint =
-  pollType === "location"
-    ? "votes/location"
-    : "votes/date";
+  const fetchVotes = async () => {
+  try {
+    const endpoint =
+      pollType === "location"
+        ? "votes/location"
+        : "votes/date";
 
-const url = `https://${projectId}.supabase.co/functions/v1/make-server-861a1fb5/${endpoint}`;
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch votes: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      const pollData = pollType === "location" ? data.locationVotes : data.dateVotes;
-      setVotes(pollData);
-      setLoading(false);
-      setError(null);
-    } catch (error) {
-      console.error(`Error fetching votes for ${pollType}:`, error);
-      
-      // Default values
-      const defaultVotes: PollData = {};
-      options.forEach(option => {
-        defaultVotes[option] = 0;
-      });
-      
-      setVotes(defaultVotes);
-      setLoading(false);
-      setError(`Koneksi ke server gagal`);
+    const url = `https://${projectId}.supabase.co/functions/v1/make-server-861a1fb5/${endpoint}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${publicAnonKey}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch votes: ${response.status}`);
     }
-  };
+
+    const data = await response.json();
+    setVotes(data.votes);
+    setLoading(false);
+    setError(null);
+  } catch (error) {
+    console.error(`Error fetching votes for ${pollType}:`, error);
+
+    const defaultVotes: PollData = {};
+    options.forEach(option => {
+      defaultVotes[option] = 0;
+    });
+
+    setVotes(defaultVotes);
+    setLoading(false);
+    setError(`Koneksi ke server gagal`);
+  }
+};
 
   const fetchUserChoice = async () => {
     try {
