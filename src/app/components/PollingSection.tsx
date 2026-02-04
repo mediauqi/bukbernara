@@ -58,9 +58,12 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
     ]);
   };
 
-  const fetchVotes = async () => {
-    try {
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-861a1fb5/votes`;
+  const endpoint =
+  pollType === "location"
+    ? "votes/location"
+    : "votes/date";
+
+const url = `https://${projectId}.supabase.co/functions/v1/make-server-861a1fb5/${endpoint}`;
       
       const response = await fetch(url, {
         method: 'GET',
