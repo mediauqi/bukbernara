@@ -216,11 +216,62 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
 
       const data = await response.json();
       
-      // Update vote counts
-      if (data.votes) {
-        setVotes(data.votes);
+  // --- Fetch votes terbaru dari tabel polls ---
+  const fetchVotes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('polls')
+        .select('option');
+
+      if (error) {
+        console.error('Error fetching votes:', error);
+        const defaultVotes: PollData = {};
+        options.forEach(option => (defaultVotes[option] = 0));
+        setVotes(defaultVotes);
+        setLoading(false);
+        setError("Koneksi ke server gagal");
+        return;
       }
-      
+
+      // Hitung jumlah vote per option
+      const counts: Record<string, number> = {};
+      data.forEach((v: { option: string }) => {
+        counts[v.option] = (counts[v.option] || 0) + 1;
+      });
+
+      setVotes(counts);
+      setLoading(false);
+      setError(null);
+
+    } catch (error) {
+      console.error('Error in fetchVotes:', error);
+      const defaultVotes: PollData = {};
+      options.forEach(option => (defaultVotes[option] = 0));
+      setVotes(defaultVotes);
+      setLoading(false);
+      setError("Koneksi ke server gagal");
+    }
+  };
+
+  // --- Delete vote user & refresh votes ---
+  const deleteVote = async () => {
+    try {
+      const userId = anonymousUserId.current;
+
+      const { error } = await supabase
+        .from('polls')
+        .delete()
+        .eq('anonymousUserId', userId)
+        .eq('option', selectedOption);
+
+      if (error) throw error;
+
+      // Ambil ulang votes terbaru
+      await fetchVotes();
+
+      setSelectedOption(null);
+      setSavedOption(null);
+
       console.log(`Vote deleted successfully`);
     } catch (error) {
       console.error(`Error deleting vote for ${pollType}:`, error);
