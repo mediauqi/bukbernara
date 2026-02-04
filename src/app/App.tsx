@@ -112,7 +112,7 @@ export default function App() {
             <div className="glass-card p-3 md:p-4">
               <div className="relative overflow-hidden rounded-2xl shadow-2xl">
                 <img
-                  src={posterImage}
+                  src="/images/Posterbukber.png"
                   alt="Buka Bareng Nara Event Poster"
                   className="w-full h-auto object-cover"
                 />
