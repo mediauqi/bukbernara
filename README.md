@@ -1,7 +1,7 @@
 
   # Web Invitation Design
 
-  This is a code bundle for Web Invitation Design. The original project is available at https://www.figma.com/design/d8571YmZesCcwAb8PlYnrX/Web-Invitation-Design.
+  This is a code bundle for Web Invitation Design. The original project is available at https://www.figma.com/design/8hDdOKggH1t6JVREl49nED/Web-Invitation-Design.
 
   ## Running the code
 

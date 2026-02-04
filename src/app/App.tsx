@@ -1,6 +1,6 @@
 import { LocationCarousel } from "./components/LocationCarousel";
 import { PollingSection } from "./components/PollingSection";
-<img src="/images/Posterbukber.png" alt="Poster" />
+import posterImage from "figma:asset/b4ce4d3955b156f008b32e362441c87e3409001d.png";
 
 export default function App() {
   const locations = [
@@ -8,44 +8,36 @@ export default function App() {
       name: "Bebek Kaleo Jababeka",
       mapsLink: "https://share.google/688fgUXQiaIoMj0ts",
       images: [
-        "/images/bebekkaleo_1.jpg",
-        "/images/bebekkaleo_2.jpg",
-        "/images/bebekkaleo_3.jpg",
-        "/images/bebekkaleo_4.jpg",
-        "/images/bebekkaleo_5.jpg",
+        "https://images.unsplash.com/photo-1567600175325-3573c56bee05?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxyZXN0YXVyYW50JTIwaW50ZXJpb3IlMjBjb3p5fGVufDF8fHx8MTc3MDIyMTQzOHww&ixlib=rb-4.1.0&q=80&w=1080",
+        "https://images.unsplash.com/photo-1552566626-52f8b828add9?w=800&q=80",
+        "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&q=80",
       ],
     },
     {
       name: "Tana Bambu Cibubur",
       mapsLink: "https://share.google/oBqxaPIbwRrTpa3pj",
       images: [
-        "/images/tanabambu_1.jpg",
-        "/images/tanabambu_2.jpg",
-        "/images/tanabambu_3.jpg",
-        "/images/tanabambu_4.jpg",
-        "/images/tanabambu_5.jpg",
+        "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80",
+        "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=80",
+        "https://images.unsplash.com/photo-1559339352-11d035aa65de?w=800&q=80",
       ],
     },
     {
       name: "Sudut Kedai Metland Cileungsi",
       mapsLink: "https://share.google/oGVqpGJg9x6KyS9mC",
       images: [
-        "/images/sudutkedai_1.jpg",
-        "/images/sudutkedai_2.jpg",
-        "/images/sudutkedai_3.jpg",
-        "/images/sudutkedai_4.jpg",
-        "/images/sudutkedai_5.jpg",
+        "https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=800&q=80",
+        "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=800&q=80",
+        "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800&q=80",
       ],
     },
     {
       name: "Ayam Taliwang Kotwis",
       mapsLink: "https://share.google/pJyCXsXlHOzy8havB",
       images: [
-        "/images/ayamtaliwang_1.jpg",
-        "/images/ayamtaliwang_2.jpg",
-        "/images/ayamtaliwang_3.jpg",
-        "/images/ayamtaliwang_4.jpg",
-        "/images/ayamtaliwang_5.jpg",
+        "https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?w=800&q=80",
+        "https://images.unsplash.com/photo-1578474846511-04ba529f0b88?w=800&q=80",
+        "https://images.unsplash.com/photo-1551218808-94e220e084d2?w=800&q=80",
       ],
     },
   ];
@@ -112,7 +104,7 @@ export default function App() {
             <div className="glass-card p-3 md:p-4">
               <div className="relative overflow-hidden rounded-2xl shadow-2xl">
                 <img
-                  src="/images/Posterbukber.png"
+                  src={posterImage}
                   alt="Buka Bareng Nara Event Poster"
                   className="w-full h-auto object-cover"
                 />

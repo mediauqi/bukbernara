@@ -1,8 +1,15 @@
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
-import * as kv from "./kv_store.tsx";
+import { createClient } from "jsr:@supabase/supabase-js@2";
+
 const app = new Hono();
+
+// Create Supabase client
+const supabase = createClient(
+  Deno.env.get('SUPABASE_URL')!,
+  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+);
 
 // Enable logger
 app.use('*', logger(console.log));
@@ -19,116 +26,277 @@ app.use(
   }),
 );
 
+// Initialize database table on startup
+async function initializeDatabase() {
+  try {
+    // Create polls table if not exists
+    const { error: createTableError } = await supabase.rpc('exec_sql', {
+      sql: `
+        CREATE TABLE IF NOT EXISTS polls (
+          id BIGSERIAL PRIMARY KEY,
+          poll_type TEXT NOT NULL,
+          option_name TEXT NOT NULL,
+          anonymous_user_id TEXT NOT NULL,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW(),
+          UNIQUE(poll_type, anonymous_user_id)
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_polls_poll_type ON polls(poll_type);
+        CREATE INDEX IF NOT EXISTS idx_polls_anonymous_user_id ON polls(anonymous_user_id);
+      `
+    });
+    
+    // Since we can't use rpc for DDL, we'll check if table exists and handle accordingly
+    console.log('Database initialization check completed');
+  } catch (error) {
+    console.log(`Database initialization info: ${error}`);
+  }
+}
+
+// Call initialization
+initializeDatabase();
+
 // Health check endpoint
 app.get("/make-server-861a1fb5/health", (c) => {
   return c.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// Test endpoint to check KV store
-app.get("/make-server-861a1fb5/test", async (c) => {
+// Get aggregated vote counts
+app.get("/make-server-861a1fb5/votes", async (c) => {
   try {
-    await kv.set("test-key", { value: "test", timestamp: new Date().toISOString() });
-    const testData = await kv.get("test-key");
-    return c.json({ 
-      status: "ok", 
-      message: "KV store is working",
-      testData 
-    });
-  } catch (error) {
-    return c.json({ 
-      status: "error", 
-      message: `KV store error: ${error}` 
-    }, 500);
-  }
-});
+    // Get all votes from database
+    const { data: votes, error } = await supabase
+      .from('polls')
+      .select('poll_type, option_name');
 
-// Initialize vote data if not exists
-async function initializeVotes() {
-  const locationVotes = await kv.get("location-votes");
-  const dateVotes = await kv.get("date-votes");
-  
-  if (!locationVotes) {
-    await kv.set("location-votes", {
+    if (error) {
+      console.error('Error fetching votes:', error);
+      // Return default values if table doesn't exist yet
+      return c.json({
+        locationVotes: {
+          "Bebek Kaleo Jababeka": 0,
+          "Tana Bambu Cibubur": 0,
+          "Sudut Kedai Metland": 0,
+          "Ayam Taliwang Kotwis": 0
+        },
+        dateVotes: {
+          "7 Maret 2026": 0,
+          "8 Maret 2026": 0,
+          "14 Maret 2026": 0
+        }
+      });
+    }
+
+    // Aggregate votes
+    const locationVotes: Record<string, number> = {
       "Bebek Kaleo Jababeka": 0,
       "Tana Bambu Cibubur": 0,
       "Sudut Kedai Metland": 0,
       "Ayam Taliwang Kotwis": 0
-    });
-  }
-  
-  if (!dateVotes) {
-    await kv.set("date-votes", {
+    };
+
+    const dateVotes: Record<string, number> = {
       "7 Maret 2026": 0,
       "8 Maret 2026": 0,
       "14 Maret 2026": 0
-    });
-  }
-}
+    };
 
-// Get all votes
-app.get("/make-server-861a1fb5/votes", async (c) => {
-  try {
-    await initializeVotes();
-    const locationVotes = await kv.get("location-votes");
-    const dateVotes = await kv.get("date-votes");
-    
+    votes?.forEach((vote: any) => {
+      if (vote.poll_type === 'location' && vote.option_name in locationVotes) {
+        locationVotes[vote.option_name]++;
+      } else if (vote.poll_type === 'date' && vote.option_name in dateVotes) {
+        dateVotes[vote.option_name]++;
+      }
+    });
+
     return c.json({
-      locationVotes: locationVotes || {},
-      dateVotes: dateVotes || {}
+      locationVotes,
+      dateVotes
     });
   } catch (error) {
-    console.log(`Error getting votes: ${error}`);
+    console.error(`Error getting votes: ${error}`);
     return c.json({ error: "Failed to get votes" }, 500);
   }
 });
 
-// Vote for location
-app.post("/make-server-861a1fb5/vote/location", async (c) => {
+// Get user's current vote for a poll type
+app.get("/make-server-861a1fb5/my-vote/:pollType/:userId", async (c) => {
   try {
-    const { location } = await c.req.json();
-    
-    if (!location) {
-      return c.json({ error: "Location is required" }, 400);
+    const pollType = c.req.param('pollType');
+    const userId = c.req.param('userId');
+
+    if (!pollType || !userId) {
+      return c.json({ error: "Poll type and user ID are required" }, 400);
     }
-    
-    await initializeVotes();
-    const votes = await kv.get("location-votes");
-    
-    if (votes && location in votes) {
-      votes[location] = (votes[location] || 0) + 1;
-      await kv.set("location-votes", votes);
-      return c.json({ success: true, votes });
+
+    const { data, error } = await supabase
+      .from('polls')
+      .select('option_name')
+      .eq('poll_type', pollType)
+      .eq('anonymous_user_id', userId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+      console.error('Error fetching user vote:', error);
+      return c.json({ error: "Failed to get user vote" }, 500);
     }
-    
-    return c.json({ error: "Invalid location" }, 400);
+
+    return c.json({
+      hasVoted: !!data,
+      option: data?.option_name || null
+    });
   } catch (error) {
-    console.log(`Error voting for location: ${error}`);
+    console.error(`Error getting user vote: ${error}`);
+    return c.json({ error: "Failed to get user vote" }, 500);
+  }
+});
+
+// Upsert vote (insert or update)
+app.post("/make-server-861a1fb5/vote/:pollType", async (c) => {
+  try {
+    const pollType = c.req.param('pollType');
+    const body = await c.req.json();
+    const { anonymousUserId, option } = body;
+
+    if (!pollType || !anonymousUserId || !option) {
+      return c.json({ 
+        error: "Poll type, anonymous user ID, and option are required" 
+      }, 400);
+    }
+
+    // Validate poll type
+    if (pollType !== 'location' && pollType !== 'date') {
+      return c.json({ error: "Invalid poll type" }, 400);
+    }
+
+    // Upsert the vote (insert or update if exists)
+    const { error: upsertError } = await supabase
+      .from('polls')
+      .upsert({
+        poll_type: pollType,
+        option_name: option,
+        anonymous_user_id: anonymousUserId,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'poll_type,anonymous_user_id'
+      });
+
+    if (upsertError) {
+      console.error('Error upserting vote:', upsertError);
+      return c.json({ error: "Failed to save vote" }, 500);
+    }
+
+    // Get updated vote counts
+    const { data: votes, error: fetchError } = await supabase
+      .from('polls')
+      .select('poll_type, option_name');
+
+    if (fetchError) {
+      console.error('Error fetching updated votes:', fetchError);
+      return c.json({ error: "Failed to get updated votes" }, 500);
+    }
+
+    // Aggregate votes
+    const locationVotes: Record<string, number> = {
+      "Bebek Kaleo Jababeka": 0,
+      "Tana Bambu Cibubur": 0,
+      "Sudut Kedai Metland": 0,
+      "Ayam Taliwang Kotwis": 0
+    };
+
+    const dateVotes: Record<string, number> = {
+      "7 Maret 2026": 0,
+      "8 Maret 2026": 0,
+      "14 Maret 2026": 0
+    };
+
+    votes?.forEach((vote: any) => {
+      if (vote.poll_type === 'location' && vote.option_name in locationVotes) {
+        locationVotes[vote.option_name]++;
+      } else if (vote.poll_type === 'date' && vote.option_name in dateVotes) {
+        dateVotes[vote.option_name]++;
+      }
+    });
+
+    return c.json({
+      success: true,
+      votes: pollType === 'location' ? locationVotes : dateVotes,
+      allVotes: {
+        locationVotes,
+        dateVotes
+      }
+    });
+  } catch (error) {
+    console.error(`Error voting: ${error}`);
     return c.json({ error: "Failed to vote" }, 500);
   }
 });
 
-// Vote for date
-app.post("/make-server-861a1fb5/vote/date", async (c) => {
+// Delete vote (cancel vote)
+app.delete("/make-server-861a1fb5/vote/:pollType/:userId", async (c) => {
   try {
-    const { date } = await c.req.json();
-    
-    if (!date) {
-      return c.json({ error: "Date is required" }, 400);
+    const pollType = c.req.param('pollType');
+    const userId = c.req.param('userId');
+
+    if (!pollType || !userId) {
+      return c.json({ error: "Poll type and user ID are required" }, 400);
     }
-    
-    await initializeVotes();
-    const votes = await kv.get("date-votes");
-    
-    if (votes && date in votes) {
-      votes[date] = (votes[date] || 0) + 1;
-      await kv.set("date-votes", votes);
-      return c.json({ success: true, votes });
+
+    const { error: deleteError } = await supabase
+      .from('polls')
+      .delete()
+      .eq('poll_type', pollType)
+      .eq('anonymous_user_id', userId);
+
+    if (deleteError) {
+      console.error('Error deleting vote:', deleteError);
+      return c.json({ error: "Failed to delete vote" }, 500);
     }
-    
-    return c.json({ error: "Invalid date" }, 400);
+
+    // Get updated vote counts
+    const { data: votes, error: fetchError } = await supabase
+      .from('polls')
+      .select('poll_type, option_name');
+
+    if (fetchError) {
+      console.error('Error fetching updated votes:', fetchError);
+      return c.json({ error: "Failed to get updated votes" }, 500);
+    }
+
+    // Aggregate votes
+    const locationVotes: Record<string, number> = {
+      "Bebek Kaleo Jababeka": 0,
+      "Tana Bambu Cibubur": 0,
+      "Sudut Kedai Metland": 0,
+      "Ayam Taliwang Kotwis": 0
+    };
+
+    const dateVotes: Record<string, number> = {
+      "7 Maret 2026": 0,
+      "8 Maret 2026": 0,
+      "14 Maret 2026": 0
+    };
+
+    votes?.forEach((vote: any) => {
+      if (vote.poll_type === 'location' && vote.option_name in locationVotes) {
+        locationVotes[vote.option_name]++;
+      } else if (vote.poll_type === 'date' && vote.option_name in dateVotes) {
+        dateVotes[vote.option_name]++;
+      }
+    });
+
+    return c.json({
+      success: true,
+      votes: pollType === 'location' ? locationVotes : dateVotes,
+      allVotes: {
+        locationVotes,
+        dateVotes
+      }
+    });
   } catch (error) {
-    console.log(`Error voting for date: ${error}`);
-    return c.json({ error: "Failed to vote" }, 500);
+    console.error(`Error deleting vote: ${error}`);
+    return c.json({ error: "Failed to delete vote" }, 500);
   }
 });
 
