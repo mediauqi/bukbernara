@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { supabase } from "/utils/supabase/client"; // pastikan path ini sesuai
+import { supabase } from "../../utils/supabase/client";
 
 interface PollData {
   [key: string]: number;
@@ -13,14 +13,14 @@ interface PollingSectionProps {
 
 // Generate or retrieve anonymous user ID
 function getAnonymousUserId(): string {
-  const STORAGE_KEY = 'anonymous_user_id';
+  const STORAGE_KEY = "anonymous_user_id";
   let userId = localStorage.getItem(STORAGE_KEY);
-  
+
   if (!userId) {
     userId = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
     localStorage.setItem(STORAGE_KEY, userId);
   }
-  
+
   return userId;
 }
 
@@ -35,36 +35,48 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const anonymousUserId = useRef<string>(getAnonymousUserId());
 
-  // --- Fetch votes dari tabel polls
+  useEffect(() => {
+    fetchVotesAndUserChoice();
+
+    const interval = setInterval(fetchVotes, 5000);
+
+    return () => {
+      clearInterval(interval);
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, []);
+
+  const fetchVotesAndUserChoice = async () => {
+    await Promise.all([fetchVotes(), fetchUserChoice()]);
+  };
+
   const fetchVotes = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("polls")
-        .select("option");
+      const { data, error } = await supabase.from("polls").select("option");
 
       if (error) throw error;
 
       const counts: PollData = {};
-      options.forEach(option => counts[option] = 0);
-      data?.forEach((vote: { option: string }) => {
-        if (counts[vote.option] !== undefined) counts[vote.option] += 1;
+      options.forEach((option) => (counts[option] = 0));
+
+      data.forEach((v: { option: string }) => {
+        counts[v.option] = (counts[v.option] || 0) + 1;
       });
 
       setVotes(counts);
       setLoading(false);
       setError(null);
-    } catch (err) {
-      console.error("Error fetching votes:", err);
-      const counts: PollData = {};
-      options.forEach(option => counts[option] = 0);
-      setVotes(counts);
+    } catch (error) {
+      console.error("Error fetching votes:", error);
+      const defaultVotes: PollData = {};
+      options.forEach((option) => (defaultVotes[option] = 0));
+      setVotes(defaultVotes);
       setLoading(false);
       setError("Koneksi ke server gagal");
     }
   };
 
-  // --- Fetch user choice
   const fetchUserChoice = async () => {
     try {
       const userId = anonymousUserId.current;
@@ -72,36 +84,27 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
         .from("polls")
         .select("option")
         .eq("anonymousUserId", userId)
-        .eq("pollType", pollType)
+        .limit(1)
         .single();
 
-      if (!error && data) {
-        setSelectedOption(data.option);
-        setSavedOption(data.option);
-        setShowThankYou(true);
-      }
-    } catch (err) {
-      console.error("Error fetching user choice:", err);
+      if (!data || error) return;
+
+      setSelectedOption(data.option);
+      setSavedOption(data.option);
+      setShowThankYou(true);
+    } catch (error) {
+      console.error("Error fetching user choice:", error);
     }
   };
 
-  const fetchAll = async () => {
-    await Promise.all([fetchVotes(), fetchUserChoice()]);
-  };
-
-  useEffect(() => {
-    fetchAll();
-    const interval = setInterval(fetchVotes, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleOptionClick = (option: string) => {
+  const handleOptionClick = async (option: string) => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-
     setShowThankYou(false);
 
     if (savedOption === option) {
-      deleteVote();
+      await deleteVote();
+      setSelectedOption(null);
+      setSavedOption(null);
       return;
     }
 
@@ -116,11 +119,9 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
     setSaving(true);
     try {
       const userId = anonymousUserId.current;
-      const { error } = await supabase
-        .from("polls")
-        .upsert({ anonymousUserId: userId, option, pollType })
-        .eq("anonymousUserId", userId)
-        .eq("pollType", pollType);
+      const { data, error } = await supabase.from("polls").insert([
+        { anonymousUserId: userId, option },
+      ]);
 
       if (error) throw error;
 
@@ -128,8 +129,8 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
 
       setSavedOption(option);
       setShowThankYou(true);
-    } catch (err) {
-      console.error("Error saving vote:", err);
+    } catch (error) {
+      console.error("Error saving vote:", error);
       setError("Gagal menyimpan vote");
       setSelectedOption(savedOption);
     } finally {
@@ -138,31 +139,26 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
   };
 
   const deleteVote = async () => {
-    setSaving(true);
     try {
       const userId = anonymousUserId.current;
       const { error } = await supabase
         .from("polls")
         .delete()
         .eq("anonymousUserId", userId)
-        .eq("pollType", pollType);
+        .eq("option", selectedOption);
 
       if (error) throw error;
 
+      await fetchVotes();
       setSelectedOption(null);
       setSavedOption(null);
-      setShowThankYou(false);
-
-      await fetchVotes();
-    } catch (err) {
-      console.error("Error deleting vote:", err);
+    } catch (error) {
+      console.error("Error deleting vote:", error);
       setError("Gagal menghapus vote");
-    } finally {
-      setSaving(false);
     }
   };
 
-  const totalVotes = Object.values(votes).reduce((a, b) => a + b, 0);
+  const totalVotes = Object.values(votes || {}).reduce((a, b) => a + b, 0);
 
   return (
     <div className="glass-card p-6 md:p-8">
@@ -183,9 +179,10 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
       ) : (
         <>
           <div className="space-y-3">
-            {options.map(option => {
+            {options.map((option) => {
               const voteCount = votes[option] || 0;
-              const percentage = totalVotes > 0 ? ((voteCount / totalVotes) * 100).toFixed(1) : "0";
+              const percentage =
+                totalVotes > 0 ? ((voteCount / totalVotes) * 100).toFixed(1) : "0";
               const isSelected = selectedOption === option;
               const isSaved = savedOption === option;
 
@@ -194,7 +191,7 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
                   key={option}
                   onClick={() => handleOptionClick(option)}
                   disabled={saving}
-                  className={`w-full p-4 rounded-2xl text-left relative overflow-hidden group transition-all duration-300 ${
+                  className={`w-full p-4 rounded-2xl text-left transition-all duration-300 relative overflow-hidden group ${
                     isSelected && isSaved
                       ? "bg-gradient-to-r from-[#00417e] to-[#0052a3] text-white shadow-xl scale-[1.02] border-2 border-[#00417e]"
                       : isSelected && !isSaved
@@ -202,25 +199,68 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
                       : "bg-white/50 hover:bg-white hover:shadow-lg hover:scale-[1.01] border border-[#00417e]/20 hover:border-[#00417e]/40"
                   } ${saving ? "opacity-70 cursor-wait" : "cursor-pointer"}`}
                 >
-                  {/* Progress */}
-                  <div
-                    className="absolute inset-0 bg-gradient-to-r from-[#00417e]/5 to-transparent transition-all duration-500"
-                    style={{ width: `${percentage}%` }}
-                  />
-                  <div className="relative z-10 flex justify-between items-center">
-                    <span className="font-semibold">{option}</span>
-                    <span>{percentage}% ({voteCount})</span>
+                  {/* Progress Background */}
+                  {!isSelected && (
+                    <div
+                      className="absolute inset-0 bg-gradient-to-r from-[#00417e]/5 to-transparent transition-all duration-500"
+                      style={{ width: `${percentage}%` }}
+                    />
+                  )}
+
+                  {/* Content */}
+                  <div className="relative z-10">
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                            isSelected ? "border-white bg-white" : "border-gray-400"
+                          }`}
+                        >
+                          {isSelected && (
+                            <div
+                              className={`w-3 h-3 rounded-full transition-all ${
+                                isSaved ? "bg-[#00417e]" : "bg-blue-500"
+                              }`}
+                            />
+                          )}
+                        </div>
+                        <span className="font-semibold text-sm md:text-base">{option}</span>
+                      </div>
+                      <span
+                        className={`text-sm font-bold px-3 py-1 rounded-full ${
+                          isSelected ? "bg-white/20 backdrop-blur-sm" : "bg-white/50 backdrop-blur-sm"
+                        }`}
+                      >
+                        {percentage}%
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`flex-1 h-2 rounded-full overflow-hidden ${
+                          isSelected ? "bg-white/30" : "bg-white/50 backdrop-blur-sm"
+                        }`}
+                      >
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 shadow-sm ${
+                            isSelected ? "bg-white" : "bg-gradient-to-r from-[#00417e] to-blue-500"
+                          }`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                      <span
+                        className={`text-xs min-w-[4rem] text-right ${
+                          isSelected ? "text-white/90" : "text-gray-600"
+                        }`}
+                      >
+                        {voteCount} suara
+                      </span>
+                    </div>
                   </div>
                 </button>
               );
             })}
           </div>
-
-          {showThankYou && (
-            <p className="mt-4 text-green-700">Terima kasih! Vote Anda sudah tercatat.</p>
-          )}
-
-          {error && <p className="mt-4 text-yellow-700">{error}</p>}
         </>
       )}
     </div>
