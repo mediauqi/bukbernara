@@ -80,7 +80,7 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
     }
 
     const data = await response.json();
-    setVotes(data.votes);
+    setVotes(data?.votes ?? {});
     setLoading(false);
     setError(null);
   } catch (error) {
@@ -179,9 +179,7 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
       const data = await response.json();
       
       // Update vote counts
-      if (data.votes) {
-        setVotes(data.votes);
-      }
+      setVotes(data?.votes ?? votes);
       
       setSavedOption(option);
       setShowThankYou(true);
@@ -230,7 +228,7 @@ export function PollingSection({ title, options, pollType }: PollingSectionProps
     }
   };
 
-  const totalVotes = Object.values(votes).reduce((a, b) => a + b, 0);
+  const totalVotes = Object.values(votes || {}).reduce((a, b) => a + b, 0);
 
   return (
     <div className="glass-card p-6 md:p-8">
