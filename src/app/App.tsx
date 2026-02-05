@@ -1,6 +1,6 @@
 import { LocationCarousel } from "./components/LocationCarousel";
 import { PollingSection } from "./components/PollingSection";
-<img src="/images/Posterbukber.png" alt="Poster" />
+import posterImage from "@/assets/b4ce4d3955b156f008b32e362441c87e3409001d.png";
 
 export default function App() {
   const locations = [
@@ -57,7 +57,7 @@ export default function App() {
     "Ayam Taliwang Kotwis",
   ];
 
-  const dateOptions = ["7 Maret 2026", "8 Maret 2026", "14 Maret 2026"];
+  const dateOptions = ["Sabtu, 7 Maret 2026", "Minggu, 8 Maret 2026", "Sabtu, 14 Maret 2026"];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 relative">
@@ -112,7 +112,7 @@ export default function App() {
             <div className="glass-card p-3 md:p-4">
               <div className="relative overflow-hidden rounded-2xl shadow-2xl">
                 <img
-                  src="/images/Posterbukber.png"
+                  src={posterImage}
                   alt="Buka Bareng Nara Event Poster"
                   className="w-full h-auto object-cover"
                 />
