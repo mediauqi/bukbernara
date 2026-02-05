@@ -57,7 +57,7 @@ export default function App() {
     "Ayam Taliwang Kotwis",
   ];
 
-  const dateOptions = ["7 Maret 2026", "8 Maret 2026", "14 Maret 2026"];
+  const dateOptions = ["Sabtu, 7 Maret 2026", "Minggu, 8 Maret 2026", "Sabtu, 14 Maret 2026"];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50 relative">
